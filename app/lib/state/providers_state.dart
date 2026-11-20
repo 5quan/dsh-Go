@@ -276,6 +276,29 @@ String normalizeBaseUrl(String raw, ProviderApi api) {
   return url;
 }
 
+/// Adapts a typed Base URL when switching the compatible protocol pill so
+/// protocol-specific suffixes (e.g. DeepSeek `/v1` <-> `/anthropic`, or
+/// Anthropic's implicit `/v1`) stay aligned without forcing manual re-entry.
+String adaptBaseUrlForProtocol(String raw, {required ProviderApi from, required ProviderApi to}) {
+  if (from == to) return raw;
+  final url = raw.trim().replaceFirst(RegExp(r'/+$'), '');
+  if (url.isEmpty) return raw;
+  final uri = Uri.tryParse(url);
+  if (uri == null || uri.host.isEmpty) return raw;
+  if (uri.host.toLowerCase() == 'api.deepseek.com') {
+    if (to == ProviderApi.anthropicMessages && (uri.path.isEmpty || uri.path == '/' || uri.path == '/v1')) {
+      return '${uri.scheme}://${uri.authority}/anthropic';
+    }
+    if (to != ProviderApi.anthropicMessages && uri.path == '/anthropic') {
+      return '${uri.scheme}://${uri.authority}/v1';
+    }
+  }
+  if (to == ProviderApi.anthropicMessages && uri.path.endsWith('/v1') && url.endsWith('/v1')) {
+    return url.substring(0, url.length - 3);
+  }
+  return raw;
+}
+
 /// Field error for a Base URL, or null.
 String? baseUrlError(String raw) {
   final url = raw.trim();
@@ -402,12 +425,15 @@ class ProviderFailure implements Exception {
 
 /// One short Chinese sentence for an error from the engine or the endpoint
 /// behind it (`llm/discoverModels` names the URL and the HTTP status).
-String describeProviderError(Object error) {
+String describeProviderError(Object error, {ProviderApi? api}) {
   if (error is ProviderFailure) return error.message;
   if (error is DshRemoteException) {
     final message = error.message;
     final code = error.code;
     if (code == 'settings/conflict') return appL10n.stateProviderConflict;
+    if ((code != null && code.startsWith('settings/')) || message.contains('home patch')) {
+      return appL10n.stateProviderConfigRejected;
+    }
     if (code == 'credential/rejected') return appL10n.stateCredentialFromEnvironment;
     if (code == 'gateway/method-not-found' || code == 'gateway/not-found') {
       return appL10n.stateProviderUnsupported;
@@ -420,7 +446,9 @@ String describeProviderError(Object error) {
     if (status != null) {
       return switch (int.parse(status)) {
         401 || 403 => appL10n.stateProviderKeyRejected,
-        404 => appL10n.stateProviderModelsMissing,
+        404 => api == ProviderApi.anthropicMessages
+            ? appL10n.stateProviderManualModels
+            : appL10n.stateProviderModelsMissing,
         429 => appL10n.stateProviderRateLimited,
         >= 500 => appL10n.stateProviderServiceUnavailable(int.parse(status)),
         _ => appL10n.stateProviderServiceStatus(int.parse(status)),
