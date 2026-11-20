@@ -264,7 +264,7 @@ class _ProviderFormPageState extends ConsumerState<ProviderFormPage> with FieldP
         _errors = {..._errors}..remove(_F.models);
       });
     } catch (error) {
-      if (isCurrent()) setState(() => _modelsError = describeProviderError(error));
+      if (isCurrent()) setState(() => _modelsError = describeProviderError(error, api: api));
     } finally {
       if (mounted) setState(() => _discovering = false);
     }
@@ -387,7 +387,18 @@ class _ProviderFormPageState extends ConsumerState<ProviderFormPage> with FieldP
                       child: SegmentedPill<ProviderApi>(
                         segments: _protocols,
                         selected: _api,
-                        onChanged: busy ? null : (v) => setState(() => _api = v),
+                        onChanged: busy
+                            ? null
+                            : (v) {
+                                final adapted = adaptBaseUrlForProtocol(_baseUrl.text, from: _api, to: v);
+                                setState(() {
+                                  _api = v;
+                                  if (adapted != _baseUrl.text) {
+                                    _baseUrl.text = adapted;
+                                    _baseUrlNote = null;
+                                  }
+                                });
+                              },
                       ),
                     ),
                   ],
